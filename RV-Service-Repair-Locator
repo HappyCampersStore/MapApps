@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Find RV Repair Shops</title>
+  <style>
+    #rv-repair-widget {
+      font-family: 'Arial', sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    h2 {
+      text-align: center;
+      color: #2c3e50;
+    }
+
+    input, select, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
+    button {
+      background-color: #27ae60;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #219150;
+    }
+
+    #map {
+      width: 100%;
+      height: 500px;
+      margin-top: 20px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="rv-repair-widget">
+    <h2>Find RV Repair Shops Near You</h2>
+    <input type="text" id="location-input" placeholder="Enter your city or ZIP code">
+
+    <select id="rating-filter">
+      <option value="0">Minimum Rating (any)</option>
+      <option value="3.0">3.0+</option>
+      <option value="3.5">3.5+</option>
+      <option value="4.0">4.0+</option>
+      <option value="4.5">4.5+</option>
+    </select>
+
+    <select id="service-filter">
+      <option value="">Service Type (any)</option>
+      <option value="mobile rv repair">Mobile RV Repair</option>
+      <option value="rv electrical">RV Electrical</option>
+      <option value="rv plumbing">RV Plumbing</option>
+      <option value="rv maintenance">General Maintenance</option>
+    </select>
+
+    <button id="search-button">Search</button>
+    <div id="map"></div>
+  </div>
+
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places"></script>
+  <script>
+    let map, service, infowindow;
+    let markers = [];
+    let userLocation = null;
+
+    function initMap(lat, lng, keyword, minRating) {
+      clearMarkers();
+      const center = new google.maps.LatLng(lat, lng);
+      userLocation = center;
+
+      map = new google.maps.Map(document.getElementById('map'), {
+        center,
+        zoom: 12
+      });
+
+      const request = {
+        location: center,
+        radius: '10000',
+        keyword: keyword || 'RV repair'
+      };
+
+      service = new google.maps.places.PlacesService(map);
+      service.nearbySearch(request, (results, status) => {
+        if (status === google.maps.places.PlacesServiceStatus.OK) {
+          // Sort by distance
+          results.sort((a, b) => {
+            const distA = google.maps.geometry.spherical.computeDistanceBetween(userLocation, a.geometry.location);
+            const distB = google.maps.geometry.spherical.computeDistanceBetween(userLocation, b.geometry.location);
+            return distA - distB;
+          });
+
+          for (const place of results) {
+            if (!place.rating || place.rating < minRating) continue;
+            createMarker(place);
+          }
+        } else {
+          alert("No results found.");
+        }
+      });
+    }
+
+    function createMarker(place) {
+      if (!place.geometry || !place.geometry.location) return;
+
+      const marker = new google.maps.Marker({
+        map: map,
+        position: place.geometry.location
+      });
+
+      markers.push(marker);
+
+      google.maps.event.addListener(marker, 'click', () => {
+        if (!infowindow) {
+          infowindow = new google.maps.InfoWindow();
+        }
+
+        const openStatus = place.opening_hours
+          ? (place.opening_hours.isOpen() ? "<span style='color:green'>Open now</span>" : "<span style='color:red'>Closed now</span>")
+          : "Hours not available";
+
+        const directionsURL = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place.name)}&destination_place_id=${place.place_id}`;
+
+        infowindow.setContent(`
+          <strong>${place.name}</strong><br>
+          Rating: ${place.rating || 'N/A'}<br>
+          ${openStatus}<br>
+          Address: ${place.vicinity}<br>
+          <a href="${directionsURL}" target="_blank">🧭 Get Directions</a>
+        `);
+        infowindow.open(map, marker);
+      });
+    }
+
+    function clearMarkers() {
+      markers.forEach(marker => marker.setMap(null));
+      markers = [];
+    }
+
+    function geocodeAddress(address, keyword, minRating) {
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ address }, (results, status) => {
+        if (status === 'OK') {
+          const lat = results[0].geometry.location.lat();
+          const lng = results[0].geometry.location.lng();
+          initMap(lat, lng, keyword, minRating);
+        } else {
+          alert('Geocode failed: ' + status);
+        }
+      });
+    }
+
+    function detectLocation(keyword, minRating) {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(pos => {
+          initMap(pos.coords.latitude, pos.coords.longitude, keyword, minRating);
+        }, () => {
+          geocodeAddress("Eagle Point, Oregon", keyword, minRating);
+        });
+      } else {
+        geocodeAddress("Eagle Point, Oregon", keyword, minRating);
+      }
+    }
+
+    document.getElementById("search-button").addEventListener("click", () => {
+      const location = document.getElementById("location-input").value;
+      const rating = parseFloat(document.getElementById("rating-filter").value);
+      const service = document.getElementById("service-filter").value || 'RV repair';
+      const minRating = isNaN(rating) ? 0 : rating;
+
+      if (location) {
+        geocodeAddress(location, service, minRating);
+      } else {
+        detectLocation(service, minRating);
+      }
+    });
+
+    // Load geometry library (for distance sort)
+    const geometryScript = document.createElement('script');
+    geometryScript.src = `https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=geometry`;
+    document.head.appendChild(geometryScript);
+
+    window.onload = () => {
+      detectLocation("RV repair", 0);
+    };
+  </script>
+</body>
+</html>
